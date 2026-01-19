@@ -1,0 +1,5 @@
+{
+  "name": "React PokéBattle",
+  "description": "A classic turn-based Pokémon battle simulator using PokeAPI. Features real-time state management, automated opponent turns, and a retro-inspired UI.",
+  "requestFramePermissions": []
+}
