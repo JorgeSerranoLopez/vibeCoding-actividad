@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchPokemon, getRandomPokemonId, fetchGen1PokemonList } from './services/pokeService';
 import { Pokemon, Turn, GameState, PokemonListItem } from './types';
 import { PokemonCard } from './components/PokemonCard';
 import { BattleLog } from './components/BattleLog';
 
-// Helper to calculate damage
 const calculateDamage = (attack: number): number => {
   const min = attack * 0.5;
   const max = attack;
@@ -20,6 +19,7 @@ export default function App() {
   const [turn, setTurn] = useState<Turn>(Turn.PLAYER);
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   // Animation states
   const [playerAttacking, setPlayerAttacking] = useState(false);
@@ -27,10 +27,14 @@ export default function App() {
   const [playerHit, setPlayerHit] = useState(false);
   const [opponentHit, setOpponentHit] = useState(false);
 
-  // Load Pokemon List on Mount
+  // Load Pokemon List
   useEffect(() => {
     fetchGen1PokemonList().then(setPokemonList);
   }, []);
+
+  const addLog = (message: string) => {
+    setLogs((prev) => [...prev, message]);
+  };
 
   const startGame = async (pokemonName: string) => {
     setLoading(true);
@@ -43,6 +47,7 @@ export default function App() {
       setLogs([`Wild ${opponentPokemon.name} appeared!`, `Go! ${playerPokemon.name}!`]);
       setTurn(Turn.PLAYER);
       setGameState(GameState.BATTLING);
+      setIsProcessing(false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -50,37 +55,35 @@ export default function App() {
     }
   };
 
-  const addLog = (message: string) => {
-    setLogs((prev) => [...prev, message]);
-  };
-
-  const executeAttack = (attacker: Pokemon, defender: Pokemon, isPlayerTurn: boolean) => {
+  const executeAttack = useCallback((attacker: Pokemon, defender: Pokemon, isPlayerTurn: boolean) => {
     const damage = calculateDamage(attacker.attack);
-    const newHp = defender.currentHp - damage;
+    const newHp = Math.max(0, defender.currentHp - damage);
     const isDefeated = newHp <= 0;
 
-    // Animations
+    // 1. Start Animation
     if (isPlayerTurn) {
       setPlayerAttacking(true);
-      setTimeout(() => {
-        setPlayerAttacking(false);
-        setOpponentHit(true);
-        setTimeout(() => setOpponentHit(false), 200); // Fast blink
-      }, 200);
     } else {
       setOpponentAttacking(true);
-      setTimeout(() => {
+    }
+
+    // 2. Impact (Mid-animation)
+    setTimeout(() => {
+      if (isPlayerTurn) {
+        setPlayerAttacking(false);
+        setOpponentHit(true);
+        setTimeout(() => setOpponentHit(false), 200);
+      } else {
         setOpponentAttacking(false);
         setPlayerHit(true);
         setTimeout(() => setPlayerHit(false), 200);
-      }, 200);
-    }
+      }
+    }, 250);
 
-    // Logic Update
+    // 3. Resolve Turn
     setTimeout(() => {
       addLog(`${attacker.name} used ATTACK!`);
-      // We log damage in next step for suspense? No, keep simple.
-
+      // Update HP
       if (isPlayerTurn) {
         setOpponent((prev) => prev ? { ...prev, currentHp: newHp } : null);
       } else {
@@ -91,36 +94,41 @@ export default function App() {
         setTurn(Turn.GAMEOVER);
         addLog(`${defender.name} fainted!`);
         addLog(isPlayerTurn ? 'YOU WIN!' : 'YOU LOSE!');
+        setIsProcessing(false); // Unlock for restart
       } else {
-        setTurn(isPlayerTurn ? Turn.OPPONENT : Turn.PLAYER);
+        const nextTurn = isPlayerTurn ? Turn.OPPONENT : Turn.PLAYER;
+        setTurn(nextTurn);
+        if (nextTurn === Turn.PLAYER) {
+           setIsProcessing(false); // Unlock player input
+        }
       }
     }, 600);
-  };
+  }, []);
 
   const handlePlayerAttack = () => {
-    if (turn !== Turn.PLAYER || !player || !opponent) return;
+    if (turn !== Turn.PLAYER || isProcessing || !player || !opponent) return;
+    setIsProcessing(true); // Lock input
     executeAttack(player, opponent, true);
   };
 
-  // AI Turn
+  // AI Turn Logic
   useEffect(() => {
     if (gameState === GameState.BATTLING && turn === Turn.OPPONENT && player && opponent) {
-      const timeout = setTimeout(() => {
+      // AI "Thinking" delay
+      const timer = setTimeout(() => {
         executeAttack(opponent, player, false);
-      }, 1500);
-      return () => clearTimeout(timeout);
+      }, 1000);
+      return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, gameState, player, opponent]);
+  }, [turn, gameState, player, opponent, executeAttack]);
 
   const resetGame = () => {
     setGameState(GameState.SELECTING);
     setPlayer(null);
     setOpponent(null);
     setLogs([]);
+    setIsProcessing(false);
   };
-
-  // --- RENDER HELPERS ---
 
   if (loading) {
     return (
@@ -130,21 +138,22 @@ export default function App() {
     );
   }
 
-  // SELECTION SCREEN
+  // --- SELECTION SCREEN ---
   if (gameState === GameState.SELECTING) {
     return (
       <div className="min-h-screen bg-[#9bbc0f] p-4 font-retro text-[#0f380f] flex flex-col items-center">
-        <h1 className="text-xl md:text-3xl mb-8 mt-4 uppercase font-bold text-center border-b-4 border-[#0f380f] pb-2">
-          Choose Your Pokemon
+        <h1 className="text-xl md:text-3xl mb-6 mt-4 uppercase font-bold text-center border-b-4 border-[#0f380f] pb-2">
+          Red Version
         </h1>
-        <div className="w-full max-w-4xl grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        <p className="mb-4 text-xs md:text-sm">Select your Pokemon</p>
+        <div className="w-full max-w-4xl grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {pokemonList.map((p) => (
                 <button
                     key={p.name}
                     onClick={() => startGame(p.name)}
-                    className="p-3 bg-[#8bac0f] border-2 border-[#0f380f] hover:bg-[#306230] hover:text-[#9bbc0f] text-xs uppercase transition-colors text-left"
+                    className="group relative p-3 bg-[#8bac0f] border-2 border-[#0f380f] hover:bg-[#306230] hover:text-[#9bbc0f] text-[10px] md:text-xs uppercase transition-colors text-left overflow-hidden shadow-lg"
                 >
-                    {p.name}
+                    <span className="relative z-10">{p.name}</span>
                 </button>
             ))}
         </div>
@@ -152,76 +161,81 @@ export default function App() {
     );
   }
 
-  // BATTLE SCREEN
+  // --- BATTLE SCREEN ---
   return (
-    <div className="min-h-screen bg-[#202020] flex items-center justify-center p-0 md:p-4 font-retro">
-      {/* GameBoy Screen Container */}
-      <div className="w-full max-w-[500px] aspect-[10/9] bg-[#f8f9fa] border-8 border-gray-400 rounded-sm shadow-2xl flex flex-col relative overflow-hidden">
+    <div className="min-h-screen bg-[#202020] flex items-center justify-center p-0 md:p-4 font-retro selection:bg-transparent">
+      {/* GameBoy Device Body (Simulated Container) */}
+      <div className="w-full max-w-[400px] bg-[#f8f9fa] border-[12px] border-[#9bbc0f] rounded shadow-2xl overflow-hidden flex flex-col">
         
-        {/* Screen Bezel Filter (Optional, keeping it clean for now) */}
-        
-        {/* BATTLE ARENA (Top 70%) */}
-        <div className="flex-[2] relative border-b-4 border-black">
-             {/* Background Grid Pattern for retro feel (CSS only) */}
-            <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #000 1px, transparent 1px)', backgroundSize: '4px 4px' }}></div>
+        {/* Battle Viewport */}
+        <div className="relative aspect-[10/9] bg-[#f8f9fa] flex flex-col border-b-4 border-[#0f380f]">
+             {/* Subtle Grid Texture */}
+            <div className="absolute inset-0 opacity-10 pointer-events-none" 
+                 style={{ backgroundImage: 'radial-gradient(#0f380f 1px, transparent 1px)', backgroundSize: '4px 4px' }}></div>
             
             {opponent && player && (
                 <>
-                <div className="absolute top-0 left-0 w-full h-1/2">
-                    <PokemonCard 
-                        pokemon={opponent} 
-                        isPlayer={false} 
-                        isAttacking={opponentAttacking} 
-                        isHit={opponentHit} 
-                    />
+                {/* Opponent Section (Top Left) */}
+                <div className="relative flex-1">
+                    <div className="absolute top-2 left-2 z-10">
+                        <PokemonCard 
+                            pokemon={opponent} 
+                            isPlayer={false} 
+                            isAttacking={opponentAttacking} 
+                            isHit={opponentHit} 
+                        />
+                    </div>
                 </div>
-                <div className="absolute bottom-0 left-0 w-full h-1/2">
-                     <PokemonCard 
-                        pokemon={player} 
-                        isPlayer={true} 
-                        isAttacking={playerAttacking} 
-                        isHit={playerHit} 
-                    />
+
+                {/* Player Section (Bottom Right) */}
+                <div className="relative flex-1">
+                     <div className="absolute bottom-2 right-2 z-10">
+                        <PokemonCard 
+                            pokemon={player} 
+                            isPlayer={true} 
+                            isAttacking={playerAttacking} 
+                            isHit={playerHit} 
+                        />
+                    </div>
                 </div>
                 </>
             )}
         </div>
 
-        {/* BOTTOM UI (Text Box + Menu) */}
-        <div className="flex-1 bg-white p-2 flex gap-2">
+        {/* Text Box Area */}
+        <div className="h-32 bg-white border-t-4 border-[#0f380f] p-2 flex gap-2">
             
-            {/* TEXT BOX */}
-            <div className="flex-[2] border-4 border-black rounded-sm relative">
+            {/* Dialog Box */}
+            <div className="flex-[2] border-4 border-[#0f380f] rounded-sm p-1 relative bg-white shadow-inner">
                  <BattleLog logs={logs} />
             </div>
 
-            {/* ACTION MENU */}
-            <div className="flex-1 border-4 border-black rounded-sm p-2 flex flex-col gap-2 justify-center bg-white">
+            {/* Menu Box */}
+            <div className="flex-1 border-4 border-[#0f380f] rounded-sm bg-white p-1 relative">
                 {turn === Turn.GAMEOVER ? (
-                     <button 
-                     onClick={resetGame}
-                     className="w-full h-full text-[10px] md:text-xs font-bold uppercase hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors"
-                   >
-                     RESTART
-                   </button>
-                ) : (
-                    <>
                     <button 
-                        onClick={handlePlayerAttack}
-                        disabled={turn !== Turn.PLAYER}
-                        className={`
-                            h-full text-left pl-2 text-xs md:text-sm font-bold uppercase flex items-center group
-                            ${turn !== Turn.PLAYER ? 'opacity-30' : 'hover:bg-gray-200'}
-                        `}
+                        onClick={resetGame}
+                        className="w-full h-full flex items-center justify-center text-[10px] uppercase font-bold hover:bg-[#0f380f] hover:text-[#9bbc0f] transition-colors"
                     >
-                        {turn === Turn.PLAYER && <span className="mr-1 group-hover:visible">▶</span>}
-                        FIGHT
+                        Restart
                     </button>
-                     {/* Decorative Buttons */}
-                     <div className="text-gray-400 text-xs pl-4 uppercase">PKMN</div>
-                     <div className="text-gray-400 text-xs pl-4 uppercase">ITEM</div>
-                     <div className="text-gray-400 text-xs pl-4 uppercase">RUN</div>
-                    </>
+                ) : (
+                    <div className="grid grid-cols-1 h-full">
+                        <button 
+                            onClick={handlePlayerAttack}
+                            disabled={turn !== Turn.PLAYER || isProcessing}
+                            className={`
+                                text-left px-2 py-1 text-[10px] font-bold uppercase hover:bg-[#9bbc0f] flex items-center group
+                                ${turn !== Turn.PLAYER || isProcessing ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}
+                            `}
+                        >
+                            {turn === Turn.PLAYER && !isProcessing && <span className="mr-1">▶</span>}
+                            FIGHT
+                        </button>
+                        <div className="px-2 py-1 text-[10px] font-bold uppercase text-gray-400">PKMN</div>
+                        <div className="px-2 py-1 text-[10px] font-bold uppercase text-gray-400">ITEM</div>
+                        <div className="px-2 py-1 text-[10px] font-bold uppercase text-gray-400">RUN</div>
+                    </div>
                 )}
             </div>
         </div>

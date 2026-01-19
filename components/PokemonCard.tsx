@@ -13,42 +13,51 @@ export const PokemonCard: React.FC<PokemonCardProps> = ({ pokemon, isPlayer, isA
   const spriteUrl = isPlayer ? pokemon.spriteBack : pokemon.spriteFront;
 
   // Animation classes
-  const attackAnim = isAttacking ? (isPlayer ? 'translate-x-4 -translate-y-4' : '-translate-x-4 translate-y-4') : '';
-  const hitAnim = isHit ? 'invisible' : ''; // Old games used blinking/invisibility for hits
+  const attackAnim = isAttacking ? (isPlayer ? 'translate-x-2 -translate-y-2' : '-translate-x-2 translate-y-2') : '';
+  const hitAnim = isHit ? 'opacity-0' : 'opacity-100'; // Blinking effect
 
   return (
-    <div className={`w-full h-full relative font-retro text-black`}>
+    <div className={`relative ${isPlayer ? 'w-[200px]' : 'w-[180px]'} h-[120px] font-retro text-[#0f380f]`}>
       
-      {/* HUD (Status Box) */}
-      <div className={`
-        absolute z-10 p-2 bg-white border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]
-        ${isPlayer ? 'bottom-8 right-4 w-[160px]' : 'top-4 left-4 w-[150px]'}
-      `}>
-        <h2 className="text-xs font-bold uppercase mb-1">{pokemon.name}</h2>
-        <div className="text-[10px] mb-1">:L50</div>
-        <HealthBar current={pokemon.currentHp} max={pokemon.maxHp} />
-        {isPlayer && (
-             <div className="text-right text-[10px] mt-1">{Math.max(0, pokemon.currentHp)}/ {pokemon.maxHp}</div>
-        )}
-      </div>
-
-      {/* Sprite */}
-      <div className={`
-        absolute 
-        ${isPlayer ? 'bottom-0 left-4' : 'top-12 right-4'}
-      `}>
-        <img
+      {/* Sprite Layer */}
+      <div className={`absolute ${isPlayer ? 'bottom-2 left-4' : 'top-8 right-4'} z-0`}>
+         <img
           src={spriteUrl}
           alt={pokemon.name}
           className={`
-            w-32 h-32 object-contain rendering-pixelated grayscale contrast-125
-            transition-transform duration-100
+            w-24 h-24 object-contain rendering-pixelated grayscale contrast-125
+            transition-all duration-100
             ${attackAnim} ${hitAnim}
-            ${isPlayer ? 'scale-150' : ''}
+            ${isPlayer ? 'scale-125' : ''}
           `}
           style={{ imageRendering: 'pixelated' }}
         />
       </div>
+
+      {/* HUD Layer - Opponent (Top Left) or Player (Bottom Right) */}
+      <div className={`
+        absolute z-10 bg-transparent
+        ${isPlayer ? 'top-6 right-0' : 'top-0 left-0'}
+      `}>
+         {/* Name & Level */}
+         <div className="flex justify-between items-baseline mb-1">
+             <span className="font-bold text-xs uppercase tracking-tighter">{pokemon.name}</span>
+             <span className="text-[10px] font-bold ml-2">:L50</span>
+         </div>
+         
+         {/* HP Bar Container */}
+         <div className="pl-2">
+            <HealthBar current={pokemon.currentHp} max={pokemon.maxHp} />
+            
+            {/* Numerical HP for Player Only */}
+            {isPlayer && (
+                <div className="text-right text-[10px] font-bold mt-1 tracking-widest">
+                    {Math.max(0, pokemon.currentHp)}/ {pokemon.maxHp}
+                </div>
+            )}
+         </div>
+      </div>
+
     </div>
   );
 };
